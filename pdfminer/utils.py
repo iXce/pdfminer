@@ -5,13 +5,14 @@ Miscellaneous Routines.
 import struct
 from sys import maxint as INF
 
-
 ##  PNG Predictor
 ##
 def apply_png_predictor(pred, colors, columns, bitspercomponent, data):
     if bitspercomponent != 8:
         # unsupported
         raise ValueError(bitspercomponent)
+    pixel_size = int(float(bitspercomponent) / 8 * colors)
+    filter_unit = max(1, pixel_size)
     nbytes = colors*columns*bitspercomponent//8
     i = 0
     buf = b''
@@ -25,22 +26,50 @@ def apply_png_predictor(pred, colors, columns, bitspercomponent, data):
             # PNG none
             line2 += line1
         elif ft == b'\x01':
-            # PNG sub (UNTESTED)
-            c = 0
-            for b in line1:
-                c = (c+ord(b)) & 255
-                line2 += chr(c)
+            # PNG sub (SOMEWHAT TESTED)
+            ai = -filter_unit
+            for x in line1:
+                if ai < 0:
+                    line2 += x
+                else:
+                    x = ord(x)
+                    a = ord(line2[ai])
+                    line2 += chr((x + a) & 0xff)
+                ai += 1
         elif ft == b'\x02':
             # PNG up
-            for (a, b) in zip(line0, line1):
-                c = (ord(a)+ord(b)) & 255
-                line2 += chr(c)
+            for (b, x) in zip(line0, line1):
+                line2 += chr((ord(b)+ord(x)) & 0xff)
         elif ft == b'\x03':
-            # PNG average (UNTESTED)
-            c = 0
-            for (a, b) in zip(line0, line1):
-                c = ((c+ord(a)+ord(b))//2) & 255
-                line2 += chr(c)
+            # PNG average (SOMEWHAT TESTED)
+            ai = -filter_unit
+            for (b, x) in zip(line0, line1):
+                if ai < 0:
+                    a = 0
+                else:
+                    a = ord(line2[ai])
+                b = ord(b)
+                x = ord(x)
+                line2 += chr((x + ((a + b) >> 1)) & 0xff)
+                ai += 1
+        elif ft == b'\x04':
+            # PNG paeth (SOMEWHAT TESTED)
+            ai = -filter_unit
+            for (b_s, cur_s) in zip(line0, line1):
+                x = ord(cur_s)
+                if ai < 0:
+                    a = c = 0
+                else:
+                    a = ord(line2[ai])
+                    c = ord(line0[ai])
+                b = ord(b_s)
+                p = a + b - c
+                pa = abs(p - a)
+                pb = abs(p - b)
+                pc = abs(p - c)
+                sel = a if pa <= pb and pa <= pc else (b if pb <= pc else c)
+                line2 += chr((sel + x) & 0xff)
+                ai += 1
         else:
             # unsupported
             raise ValueError(ft)
